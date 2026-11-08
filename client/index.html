@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#070b14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Maze Mayhem</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23070b14'/%3E%3Cpath d='M3 3h10v3H6v4h7v3H3z' fill='none' stroke='%2322d3ee' stroke-width='1.5'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Home: name + create/join -->
+      <section id="screen-home" class="screen" aria-labelledby="title">
+        <div class="card">
+          <h1 id="title" class="logo"><span class="p1">Maze</span> <span class="p2">Mayhem</span></h1>
+          <p class="tagline">Race to the centre. Shoot, bribe or bulldoze your way through.</p>
+          <form id="home-form" autocomplete="off">
+            <label for="name-input">Your name</label>
+            <input id="name-input" name="name" maxlength="16" placeholder="e.g. Richik" required enterkeyhint="done" />
+            <button type="submit" id="create-btn" class="btn primary">Create room</button>
+            <div class="divider"><span>or join a friend</span></div>
+            <label for="code-input">Room code</label>
+            <div class="row">
+              <input id="code-input" name="code" maxlength="4" placeholder="ABCD" autocapitalize="characters" spellcheck="false" enterkeyhint="go" />
+              <button type="button" id="join-btn" class="btn">Join</button>
+            </div>
+            <p id="home-error" class="error" role="alert" aria-live="assertive"></p>
+          </form>
+          <details class="howto">
+            <summary>How to play</summary>
+            <ul>
+              <li><b>Desktop:</b> arrow keys move one cell, <kbd>Space</kbd> shoots.</li>
+              <li><b>Mobile:</b> Up/Down buttons, tap left/right half of the screen to turn and move, Fire button to shoot.</li>
+              <li>Reach the glowing centre first. 10 HP, shots cost 1 HP.</li>
+              <li>Corrupt NPCs block your route: negotiate, kill or walk away. Never fail a bribe with the police!</li>
+            </ul>
+          </details>
+        </div>
+      </section>
+
+      <!-- Lobby -->
+      <section id="screen-lobby" class="screen" hidden aria-labelledby="lobby-title">
+        <div class="card">
+          <h2 id="lobby-title">Room</h2>
+          <button type="button" id="room-code" class="room-code" title="Copy room code" aria-label="Room code, click to copy"></button>
+          <p class="muted" id="lobby-hint">Share this code with your opponent.</p>
+          <ul class="seats" id="seats"></ul>
+          <button type="button" id="ready-btn" class="btn primary" aria-pressed="false">I'm ready</button>
+          <button type="button" id="leave-btn" class="btn ghost">Leave room</button>
+        </div>
+      </section>
+
+      <!-- Game -->
+      <section id="screen-game" class="screen game" hidden>
+        <canvas id="view" aria-label="Maze view"></canvas>
+        <canvas id="minimap" aria-label="Minimap"></canvas>
+        <div id="hud" class="hud">
+          <div class="hud-players">
+            <div class="hp-card" id="hp-me"></div>
+            <div class="hp-card" id="hp-opp"></div>
+          </div>
+          <div class="hud-row">
+            <span class="coins" id="coins" aria-label="Coins"></span>
+            <span class="status" id="status"></span>
+          </div>
+          <div class="kills" id="kills" aria-label="Kill status per NPC type"></div>
+        </div>
+        <ol id="feed" class="feed" aria-live="polite"></ol>
+        <div id="flash" class="flash"></div>
+        <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
+
+        <div id="touch" class="touch" hidden>
+          <div class="touch-hint left" aria-hidden="true">&#9664; tap</div>
+          <div class="touch-hint right" aria-hidden="true">tap &#9654;</div>
+          <div class="dpad">
+            <button type="button" class="tbtn" data-dir="up" aria-label="Move up">&#9650;</button>
+            <button type="button" class="tbtn" data-dir="down" aria-label="Move down">&#9660;</button>
+          </div>
+          <button type="button" class="tbtn fire" id="fire-btn" aria-label="Fire">FIRE</button>
+        </div>
+
+        <!-- NPC dialogue -->
+        <div id="dialogue" class="modal" hidden>
+          <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby="dlg-flavor">
+            <div class="dlg-head">
+              <span class="npc-badge" id="dlg-badge"></span>
+              <h3 id="dlg-title"></h3>
+              <span class="dlg-step" id="dlg-step"></span>
+            </div>
+            <p id="dlg-flavor" class="flavor"></p>
+            <p id="dlg-reply" class="reply" hidden></p>
+            <div id="dlg-choose" class="dlg-actions">
+              <button type="button" class="btn primary" data-action="negotiate">Negotiate</button>
+              <button type="button" class="btn danger" data-action="kill"></button>
+              <button type="button" class="btn" data-action="walk"></button>
+              <p class="muted small" id="dlg-note"></p>
+            </div>
+            <div id="dlg-negotiate" class="dlg-negotiate" hidden>
+              <div class="offer-display">
+                <label for="offer-range">Your offer</label>
+                <output id="offer-value" for="offer-range">0</output>
+                <span class="muted small" id="offer-of"></span>
+              </div>
+              <input type="range" id="offer-range" min="0" max="100" step="1" value="0" />
+              <div class="quick">
+                <button type="button" class="btn small" data-quick="low">Low</button>
+                <button type="button" class="btn small" data-quick="medium">Medium</button>
+                <button type="button" class="btn small" data-quick="high">High</button>
+              </div>
+              <button type="button" class="btn primary" id="offer-btn">Make offer</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result -->
+        <div id="result" class="modal" hidden>
+          <div class="dialog result" role="dialog" aria-modal="true" aria-labelledby="res-title">
+            <h2 id="res-title"></h2>
+            <p id="res-reason" class="reason"></p>
+            <table class="stats" id="res-stats"></table>
+            <p class="muted small" id="res-status" aria-live="polite"></p>
+            <div class="dlg-actions">
+              <button type="button" class="btn primary" id="rematch-btn">Rematch</button>
+              <button type="button" class="btn ghost" id="res-leave-btn">Leave room</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div id="conn" class="conn" hidden role="status">Reconnecting...</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
