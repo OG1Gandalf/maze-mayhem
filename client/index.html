@@ -31,10 +31,11 @@
           <details class="howto">
             <summary>How to play</summary>
             <ul>
-              <li><b>Desktop:</b> arrow keys move one cell, <kbd>Space</kbd> shoots.</li>
-              <li><b>Mobile:</b> Up/Down buttons, tap left/right half of the screen to turn and move, Fire button to shoot.</li>
-              <li>Reach the glowing centre first. 10 HP, shots cost 1 HP.</li>
-              <li>Corrupt NPCs block your route: negotiate, kill or walk away. Never fail a bribe with the police!</li>
+              <li><b>Controls are relative to your character:</b> Up = step forward, Left/Right = turn 90&deg; and step, Down = turn around and step. Into a wall you only turn.</li>
+              <li><b>Desktop:</b> arrow keys (or WASD), <kbd>Space</kbd> shoots, <kbd>M</kbd> enlarges the map.</li>
+              <li><b>Mobile:</b> D-pad bottom-left, Fire bottom-right, tap the map to enlarge it.</li>
+              <li>Reach the golden light pillar in the centre first. 10 HP, shots cost 1 HP.</li>
+              <li>Corrupt NPCs hunt you down: bribe them with cash, kill them or walk away. Never fail a bribe with the police!</li>
             </ul>
           </details>
         </div>
@@ -55,14 +56,14 @@
       <!-- Game -->
       <section id="screen-game" class="screen game" hidden>
         <canvas id="view" aria-label="Maze view"></canvas>
-        <canvas id="minimap" aria-label="Minimap"></canvas>
+        <canvas id="minimap" role="button" tabindex="-1" aria-label="Minimap, tap to enlarge"></canvas>
         <div id="hud" class="hud">
           <div class="hud-players">
             <div class="hp-card" id="hp-me"></div>
             <div class="hp-card" id="hp-opp"></div>
           </div>
           <div class="hud-row">
-            <span class="coins" id="coins" aria-label="Coins"></span>
+            <span class="cash" id="cash" aria-label="Cash"></span>
             <span class="status" id="status"></span>
           </div>
           <div class="kills" id="kills" aria-label="Kill status per NPC type"></div>
@@ -72,11 +73,11 @@
         <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
 
         <div id="touch" class="touch" hidden>
-          <div class="touch-hint left" aria-hidden="true">&#9664; tap</div>
-          <div class="touch-hint right" aria-hidden="true">tap &#9654;</div>
           <div class="dpad">
-            <button type="button" class="tbtn" data-dir="up" aria-label="Move up">&#9650;</button>
-            <button type="button" class="tbtn" data-dir="down" aria-label="Move down">&#9660;</button>
+            <button type="button" class="tbtn up" data-rel="forward" aria-label="Step forward">&#9650;</button>
+            <button type="button" class="tbtn left" data-rel="left" aria-label="Turn left and step">&#9664;</button>
+            <button type="button" class="tbtn right" data-rel="right" aria-label="Turn right and step">&#9654;</button>
+            <button type="button" class="tbtn down" data-rel="back" aria-label="Turn around and step">&#9660;</button>
           </div>
           <button type="button" class="tbtn fire" id="fire-btn" aria-label="Fire">FIRE</button>
         </div>
@@ -98,18 +99,27 @@
               <p class="muted small" id="dlg-note"></p>
             </div>
             <div id="dlg-negotiate" class="dlg-negotiate" hidden>
-              <div class="offer-display">
-                <label for="offer-range">Your offer</label>
-                <output id="offer-value" for="offer-range">0</output>
-                <span class="muted small" id="offer-of"></span>
+              <div class="cash-stage" aria-hidden="true">
+                <div class="cash-table" id="cash-table"></div>
+                <div class="npc-avatar" id="npc-avatar">
+                  <div class="av-head"><span class="av-hat"></span><span class="av-eyes"></span></div>
+                  <div class="av-body"><span class="av-hand"></span></div>
+                </div>
               </div>
-              <input type="range" id="offer-range" min="0" max="100" step="1" value="0" />
-              <div class="quick">
-                <button type="button" class="btn small" data-quick="low">Low</button>
-                <button type="button" class="btn small" data-quick="medium">Medium</button>
-                <button type="button" class="btn small" data-quick="high">High</button>
+              <div id="offer-controls" class="dlg-negotiate">
+                <div class="offer-display">
+                  <label for="offer-range">Your offer</label>
+                  <output id="offer-value" for="offer-range">0</output>
+                  <span class="muted small" id="offer-of"></span>
+                </div>
+                <input type="range" id="offer-range" min="0" max="100" step="1" value="0" />
+                <div class="quick">
+                  <button type="button" class="btn small" data-quick="low">Low</button>
+                  <button type="button" class="btn small" data-quick="medium">Medium</button>
+                  <button type="button" class="btn small" data-quick="high">High</button>
+                </div>
+                <button type="button" class="btn primary" id="offer-btn">Offer</button>
               </div>
-              <button type="button" class="btn primary" id="offer-btn">Make offer</button>
             </div>
           </div>
         </div>
@@ -121,6 +131,7 @@
             <p id="res-reason" class="reason"></p>
             <table class="stats" id="res-stats"></table>
             <p class="muted small" id="res-status" aria-live="polite"></p>
+            <p class="muted small seed" id="res-seed"></p>
             <div class="dlg-actions">
               <button type="button" class="btn primary" id="rematch-btn">Rematch</button>
               <button type="button" class="btn ghost" id="res-leave-btn">Leave room</button>

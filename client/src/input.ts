@@ -1,20 +1,26 @@
-import type { Dir } from '../../shared/protocol';
+import type { RelDir } from '../../shared/protocol';
 import { sfx } from './audio';
 
 export interface InputHandlers {
-  move(dir: Dir): void;
+  move(rel: RelDir): void;
   shoot(): void;
-  /** False while a dialogue is open or the game screen is not active. */
+  toggleMap(): void;
+  /** False while a dialogue/cinematic is active or the game screen is not visible. */
   enabled(): boolean;
   /** True while the game screen is visible (used to block page scroll/zoom gestures). */
   inGame(): boolean;
 }
 
-const KEY_DIRS: Record<string, Dir> = {
-  ArrowUp: 'up',
-  ArrowDown: 'down',
+/** Relative to the character: Up = forward, Left/Right = turn and step, Down = turn around and step. */
+const KEY_REL: Record<string, RelDir> = {
+  ArrowUp: 'forward',
+  ArrowDown: 'back',
   ArrowLeft: 'left',
   ArrowRight: 'right',
+  KeyW: 'forward',
+  KeyS: 'back',
+  KeyA: 'left',
+  KeyD: 'right',
 };
 
 export function setupInput(gameEl: HTMLElement, touchEl: HTMLElement, h: InputHandlers): void {
@@ -23,15 +29,20 @@ export function setupInput(gameEl: HTMLElement, touchEl: HTMLElement, h: InputHa
   window.addEventListener('keydown', unlockAudio, { capture: true });
 
   window.addEventListener('keydown', (e) => {
-    if (!h.enabled()) return;
+    if (!h.inGame()) return;
     if (e.target instanceof Element && e.target.closest('input, textarea, select, .modal')) return;
-    const dir = KEY_DIRS[e.key];
-    if (dir) {
+    if (e.code === 'KeyM' && !e.repeat) {
+      h.toggleMap();
+      return;
+    }
+    if (!h.enabled()) return;
+    const rel = KEY_REL[e.code] ?? KEY_REL[e.key];
+    if (rel) {
       e.preventDefault();
-      if (!e.repeat) h.move(dir);
+      if (!e.repeat) h.move(rel);
     } else if (e.code === 'Space') {
       e.preventDefault();
-      h.shoot();
+      if (!e.repeat) h.shoot();
     }
   });
 
@@ -40,32 +51,33 @@ export function setupInput(gameEl: HTMLElement, touchEl: HTMLElement, h: InputHa
     gameEl.classList.add('touch-on');
   };
   if (matchMedia('(pointer: coarse)').matches) enableTouchUi();
-
-  // Left / right half of the screen turns and moves; buttons are excluded.
   gameEl.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse') return;
-    enableTouchUi();
-    if ((e.target as HTMLElement).closest('.tbtn, .modal')) return;
-    e.preventDefault();
-    if (!h.enabled()) return;
-    h.move(e.clientX < window.innerWidth / 2 ? 'left' : 'right');
+    if (e.pointerType !== 'mouse') enableTouchUi();
   });
 
+  // Each button tracks its own pointers, so the D-pad and Fire can be held at the same time.
   for (const btn of touchEl.querySelectorAll<HTMLButtonElement>('.tbtn')) {
-    const release = () => btn.classList.remove('pressed');
+    const pointers = new Set<number>();
+    const release = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (!pointers.size) btn.classList.remove('pressed');
+    };
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      pointers.add(e.pointerId);
       btn.classList.add('pressed');
       if (!h.enabled()) return;
-      const dir = btn.dataset.dir as Dir | undefined;
-      if (dir) h.move(dir);
+      const rel = btn.dataset.rel as RelDir | undefined;
+      if (rel) h.move(rel);
       else h.shoot();
     });
     btn.addEventListener('pointerup', release);
     btn.addEventListener('pointercancel', release);
     btn.addEventListener('pointerleave', release);
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Keyboard/mouse activation of the on-screen buttons is handled by pointerdown; swallow the click.
+    btn.addEventListener('click', (e) => e.preventDefault());
   }
 
   // Block scrolling, pinch-zoom and double-tap zoom while playing (dialogs may still scroll).
@@ -73,6 +85,9 @@ export function setupInput(gameEl: HTMLElement, touchEl: HTMLElement, h: InputHa
     if (h.inGame() && !(e.target instanceof Element && e.target.closest('.modal'))) e.preventDefault();
   };
   document.addEventListener('touchmove', blockGesture, { passive: false });
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) blockGesture(e);
+  }, { passive: false });
   document.addEventListener('gesturestart', blockGesture as EventListener, { passive: false });
   document.addEventListener('dblclick', blockGesture, { passive: false });
   gameEl.addEventListener('contextmenu', (e) => e.preventDefault());

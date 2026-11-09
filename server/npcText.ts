@@ -1,10 +1,10 @@
 import type { NpcReply, Role } from '../shared/protocol';
 
 const INTRO: Record<Role, string> = {
-  MP: 'An MP blocks the corridor, flanked by aides. "Nobody passes my constituency for free."',
-  BUSINESSMAN: 'A businessman in a shiny suit grins. "Everything has a price, friend. Including this hallway."',
-  MLA: 'A local MLA waves a stack of files. "I could approve a shortcut... for a small consideration."',
-  POLICE: 'A policeman raises his lathi. "Papers! Or something better than papers."',
+  MP: 'An MP corners you, flanked by aides. "Nobody passes my constituency for free."',
+  BUSINESSMAN: 'A businessman in a shiny suit catches up, grinning. "Everything has a price, friend. Including this hallway."',
+  MLA: 'A local MLA waves a stack of files in your face. "I could approve a shortcut... for a small consideration."',
+  POLICE: 'A policeman grabs your collar and raises his lathi. "Papers! Or something better than papers."',
 };
 
 const STEP_ONE: Record<Role, string> = {

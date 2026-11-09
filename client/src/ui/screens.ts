@@ -1,3 +1,4 @@
+import { formatCash } from '../../../shared/constants';
 import type { GameOverMsg, LobbyState, PlayerStats, Slot, WinReason } from '../../../shared/protocol';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -50,11 +51,11 @@ const REASON_LABEL: Record<WinReason, string> = {
 };
 
 const STAT_ROWS: [keyof PlayerStats, string][] = [
-  ['coins', 'Coins left'],
+  ['cash', 'Cash left'],
   ['hp', 'HP left'],
   ['shotsHit', 'Shots hit'],
   ['shotsFired', 'Shots fired'],
-  ['coinsCollected', 'Coins picked up'],
+  ['cashCollected', 'Cash picked up'],
   ['bribed', 'NPCs bribed'],
   ['failedBribes', 'Failed bribes'],
   ['killed', 'NPCs killed'],
@@ -72,8 +73,12 @@ export function renderResult(o: GameOverMsg, you: Slot): void {
   const head = `<thead><tr><th></th>${o.names
     .map((n, i) => `<th class="s${i}" scope="col">P${i + 1} ${escapeHtml(n)}${i === you ? ' (you)' : ''}${i === o.winner ? ' \u{1F3C6}' : ''}</th>`)
     .join('')}</tr></thead>`;
-  const body = STAT_ROWS.map(([k, label]) => `<tr><th scope="row">${label}</th><td>${o.stats[0][k]}</td><td>${o.stats[1][k]}</td></tr>`).join('');
+  const fmt = (k: keyof PlayerStats, v: number) => (k === 'cash' || k === 'cashCollected' ? formatCash(v) : String(v));
+  const body = STAT_ROWS.map(
+    ([k, label]) => `<tr><th scope="row">${label}</th><td>${fmt(k, o.stats[0][k])}</td><td>${fmt(k, o.stats[1][k])}</td></tr>`,
+  ).join('');
   table.innerHTML = head + `<tbody>${body}</tbody>`;
+  $('res-seed').textContent = `Maze seed: ${o.seed}`;
 }
 
 export function renderRematch(s: LobbyState | null, you: Slot): void {
@@ -98,7 +103,7 @@ export function renderRematch(s: LobbyState | null, you: Slot): void {
   } else {
     btn.textContent = 'Rematch';
     btn.disabled = false;
-    status.textContent = s.rematch[opp] ? `${oppPlayer.name} wants a rematch!` : 'Same room, brand-new maze.';
+    status.textContent = s.rematch[opp] ? `${oppPlayer.name} wants a rematch!` : 'Same room, brand-new random maze.';
   }
 }
 

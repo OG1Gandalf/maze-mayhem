@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 /** Small seeded PRNG (mulberry32) so mazes and games are reproducible from a seed. */
 export interface Rng {
   next(): number;
@@ -30,6 +32,7 @@ export function createRng(seed: number): Rng {
   };
 }
 
+/** Fresh crypto-random 32-bit seed for every game and rematch. */
 export function randomSeed(): number {
-  return Math.floor(Math.random() * 0xffffffff);
+  return randomInt(0, 2 ** 32 - 1);
 }

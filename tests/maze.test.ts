@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FAIRNESS_TOLERANCE, MAZE_SIZE } from '../shared/constants';
-import { DIRS, bfsDistances, hasWall, shortestPath } from '../shared/maze';
+import { DIRS, bfsDistances, hasWall, lineOfSight, shortestPath } from '../shared/maze';
 import { generateMaze, isFair, startDistances } from '../server/maze';
+import { randomSeed } from '../server/rng';
 
 const SEEDS = Array.from({ length: 100 }, (_, i) => i * 7919 + 1);
 
@@ -73,5 +74,44 @@ describe('maze generation', () => {
     let regenerated = 0;
     for (const seed of SEEDS) if (generateMaze(seed).seed !== seed >>> 0) regenerated++;
     expect(regenerated).toBeGreaterThan(0);
+  });
+});
+
+describe('random seed per session', () => {
+  it('randomSeed is a crypto-random 32-bit integer that does not repeat', () => {
+    const seeds = Array.from({ length: 200 }, randomSeed);
+    for (const s of seeds) {
+      expect(Number.isInteger(s)).toBe(true);
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThan(2 ** 32);
+    }
+    expect(new Set(seeds).size).toBe(seeds.length);
+  });
+
+  it('two consecutive games get different mazes', () => {
+    const a = generateMaze(randomSeed());
+    const b = generateMaze(randomSeed());
+    expect(a.cells).not.toEqual(b.cells);
+  });
+
+  it('150 random-seed mazes are all solvable and fair', () => {
+    for (let i = 0; i < 150; i++) {
+      const m = generateMaze(randomSeed());
+      expect([...bfsDistances(m, m.goal)].every((d) => d >= 0)).toBe(true);
+      expect(isFair(m)).toBe(true);
+    }
+  });
+});
+
+describe('line of sight', () => {
+  it('only along an unobstructed row or column within range', () => {
+    const m = generateMaze(5);
+    for (let y = 0; y < m.height; y++) {
+      for (let x = 0; x + 1 < m.width; x++) {
+        expect(lineOfSight(m, { x, y }, { x: x + 1, y }, 10)).toBe(!hasWall(m, x, y, 'right'));
+      }
+    }
+    expect(lineOfSight(m, { x: 0, y: 0 }, { x: 1, y: 1 }, 10)).toBe(false);
+    expect(lineOfSight(m, { x: 3, y: 3 }, { x: 3, y: 3 }, 10)).toBe(true);
   });
 });

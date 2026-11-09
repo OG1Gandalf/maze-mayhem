@@ -34,8 +34,8 @@ export function createNegotiation(role: Role, price: number): Negotiation {
   return { role, price, step: 1, done: false, lastReply: null, lastFarTooLow: false };
 }
 
-export function quickOffers(coins: number): { low: number; medium: number; high: number } {
-  const f = (x: number) => Math.max(0, Math.floor(coins * x));
+export function quickOffers(cash: number): { low: number; medium: number; high: number } {
+  const f = (x: number) => Math.max(0, Math.floor(cash * x));
   return { low: f(QUICK_OFFER_FRACTIONS.low), medium: f(QUICK_OFFER_FRACTIONS.medium), high: f(QUICK_OFFER_FRACTIONS.high) };
 }
 

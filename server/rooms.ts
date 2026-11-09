@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { Server, Socket } from 'socket.io';
-import { COUNTDOWN_SECONDS, RECONNECT_GRACE_MS, ROOM_CODE_LENGTH, TICK_MS } from '../shared/constants';
-import { isDir } from '../shared/maze';
+import {
+  COUNTDOWN_SECONDS,
+  RATE_LIMIT_BURST,
+  RATE_LIMIT_PER_SEC,
+  RECONNECT_GRACE_MS,
+  ROOM_CODE_LENGTH,
+  TICK_MS,
+} from '../shared/constants';
+import { isRelDir } from '../shared/maze';
 import type {
   ClientToServerEvents,
   JoinResult,
@@ -76,6 +83,17 @@ export class RoomManager {
   // ------------------------------------------------------------ socket wiring
 
   private attach(socket: Sock): void {
+    let tokens = RATE_LIMIT_BURST;
+    let refilled = Date.now();
+    socket.use((_packet, next) => {
+      const now = Date.now();
+      tokens = Math.min(RATE_LIMIT_BURST, tokens + ((now - refilled) * RATE_LIMIT_PER_SEC) / 1000);
+      refilled = now;
+      if (tokens < 1) return;
+      tokens -= 1;
+      next();
+    });
+
     socket.on('room:create', (p, ack) => {
       if (typeof ack !== 'function') return;
       this.leaveCurrent(socket);
@@ -113,7 +131,7 @@ export class RoomManager {
       this.emitLobby(room);
       if (room.game) {
         room.game.setConnected(ref.slot, true);
-        socket.emit('game:init', { maze: room.game.maze, you: ref.slot, names: [room.game.players[0].name, room.game.players[1].name] });
+        socket.emit('game:init', { maze: room.game.maze, you: ref.slot, names: [room.game.players[0].name, room.game.players[1].name], seed: room.game.seed });
         if (room.phase === 'over' && room.game.result) socket.emit('game:over', room.game.result);
         else this.emitTo(room, other(ref.slot), 'game:notify', { text: `${seat.name} reconnected`, tone: 'info' });
         room.game.broadcastState();
@@ -133,7 +151,7 @@ export class RoomManager {
 
     socket.on('input:move', (dir) => {
       const ctx = this.ctx(socket);
-      if (ctx?.room.game && isDir(dir)) ctx.room.game.handleMove(ctx.slot, dir);
+      if (ctx?.room.game && isRelDir(dir)) ctx.room.game.handleMove(ctx.slot, dir);
     });
     socket.on('input:shoot', () => {
       const ctx = this.ctx(socket);
@@ -280,7 +298,7 @@ export class RoomManager {
       },
     );
     room.game = game;
-    for (const slot of SLOTS) this.emitTo(room, slot, 'game:init', { maze: game.maze, you: slot, names: [a.name, b.name] });
+    for (const slot of SLOTS) this.emitTo(room, slot, 'game:init', { maze: game.maze, you: slot, names: [a.name, b.name], seed: game.seed });
     game.broadcastState();
     this.emitLobby(room);
 

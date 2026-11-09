@@ -1,13 +1,12 @@
 import './style.css';
-import { NAME_MAX, SHOT_SPEED } from '../../shared/constants';
-import { DIR_VEC, hasWall, type MazeData } from '../../shared/maze';
+import { NAME_MAX, NPC_CHASE_RADIUS } from '../../shared/constants';
+import { chebyshev, type MazeData } from '../../shared/maze';
 import type { GameOverMsg, JoinResult, LobbyState, Slot, StateMsg } from '../../shared/protocol';
 import { sfx } from './audio';
 import { setupInput } from './input';
 import { connect, session } from './net';
-import { drawMinimap } from './render/minimap';
-import { cellSizeFor, drawPov, type PovModel } from './render/pov';
-import { Tween } from './render/tween';
+import { Minimap } from './render/minimap';
+import { World3D } from './three/world';
 import { Dialogue } from './ui/dialogue';
 import { Hud } from './ui/hud';
 import { renderLobby, renderResult, renderRematch, showScreen, type ScreenName } from './ui/screens';
@@ -23,20 +22,30 @@ const S = {
   you: 0 as Slot,
   names: ['', ''] as [string, string],
   maze: null as MazeData | null,
+  seed: 0,
   state: null as StateMsg | null,
-  stateAt: 0,
   over: null as GameOverMsg | null,
   inRoom: false,
+  bigMap: false,
 };
 
-const meTween = new Tween();
-const oppTween = new Tween();
-let oppWasVisible = false;
+const view = $<HTMLCanvasElement>('view');
+const minimapEl = $<HTMLCanvasElement>('minimap');
+let world: World3D | null = null;
+let minimap: Minimap | null = null;
+
+/** Frees the 3D scene of the current game (geometries, materials, textures). */
+function disposeWorld(): void {
+  world?.dispose();
+  world = null;
+  minimap = null;
+}
 
 function go(screen: ScreenName): void {
   S.screen = screen;
   showScreen(screen);
-  if (screen === 'game') resize();
+  if (screen !== 'game') disposeWorld();
+  else world?.resize();
 }
 
 // ---------------------------------------------------------------- home
@@ -146,19 +155,34 @@ $('rematch-btn').addEventListener('click', () => {
   socket.emit('game:rematch');
 });
 
-// ---------------------------------------------------------------- dialogue
+// ---------------------------------------------------------------- dialogue + input
 
 const dialogue = new Dialogue({
   action: (a) => socket.emit('npc:action', a),
   offer: (n) => socket.emit('npc:offer', n),
 });
 
-// ---------------------------------------------------------------- input
+function toggleMap(): void {
+  S.bigMap = !S.bigMap;
+  minimapEl.classList.toggle('big', S.bigMap);
+  minimapEl.setAttribute('aria-label', S.bigMap ? 'Minimap, tap to shrink' : 'Minimap, tap to enlarge');
+}
+minimapEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  toggleMap();
+});
 
 setupInput($('screen-game'), $('touch'), {
-  move: (dir) => socket.emit('input:move', dir),
+  move: (rel) => socket.emit('input:move', rel),
   shoot: () => socket.emit('input:shoot'),
-  enabled: () => S.screen === 'game' && !dialogue.isOpen() && $('result').hidden && S.state?.phase === 'playing',
+  toggleMap,
+  enabled: () =>
+    S.screen === 'game' &&
+    !dialogue.isOpen() &&
+    $('result').hidden &&
+    S.state?.phase === 'playing' &&
+    !(world?.inCinematic() ?? false),
   inGame: () => S.screen === 'game',
 });
 
@@ -207,19 +231,23 @@ socket.on('lobby:state', (s) => {
 });
 
 socket.on('game:init', (g) => {
+  const sameGame = world && S.seed === g.seed && S.you === g.you;
   S.maze = g.maze;
   S.you = g.you;
   S.names = g.names;
+  S.seed = g.seed;
   S.state = null;
   S.over = null;
-  meTween.reset();
-  oppTween.reset();
-  oppWasVisible = false;
   $('result').hidden = true;
   dialogue.close();
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   hud.setPlayers(g.you, g.names);
   go('game');
+  if (!sameGame) {
+    disposeWorld();
+    world = new World3D(view, g.maze, g.you, g.names);
+  }
+  minimap = new Minimap(minimapEl, g.maze, g.seed);
 });
 
 let countdownTimer = 0;
@@ -235,29 +263,25 @@ socket.on('game:countdown', (n) => {
 });
 
 socket.on('game:state', (s) => {
-  const now = performance.now();
   S.state = s;
-  S.stateAt = now;
-  meTween.target(s.me.x, s.me.y, s.me.moveMs, now);
-  if (s.opp.visible && s.opp.x !== undefined && s.opp.y !== undefined) {
-    if (!oppWasVisible) oppTween.snap(s.opp.x, s.opp.y);
-    else oppTween.target(s.opp.x, s.opp.y, s.opp.moveMs, now);
-  }
-  oppWasVisible = s.opp.visible;
+  world?.onState(s, performance.now());
   hud.update(s);
   if (!S.over) dialogue.update(s.encounter);
 });
 
 socket.on('maze:update', (cells) => {
   if (S.maze) S.maze = { ...S.maze, cells };
-  hud.notify({ text: 'The walls shift: a shortcut opened!', tone: 'info' });
+  world?.onMaze(cells, performance.now());
+  hud.notify({ text: 'The walls rumble: a shortcut opened!', tone: 'info' });
 });
 
 socket.on('game:fx', (f) => {
   const mine = f.slot === S.you;
+  world?.onFx(f, performance.now());
   switch (f.kind) {
     case 'shot':
-      sfx.shoot(mine || !!S.state?.opp.visible);
+      if (mine || S.state?.opp.visible) sfx.shoot(true);
+      else sfx.shoot(false);
       break;
     case 'hit':
       if (mine) {
@@ -266,8 +290,8 @@ socket.on('game:fx', (f) => {
         navigator.vibrate?.(60);
       } else sfx.hit();
       break;
-    case 'coin':
-      if (mine) sfx.coin();
+    case 'cash':
+      if (mine) sfx.cash();
       break;
     case 'encounter':
       if (mine) sfx.encounter();
@@ -279,7 +303,7 @@ socket.on('game:fx', (f) => {
       if (mine) sfx.bribeFail();
       break;
     case 'kill':
-      if (mine) sfx.kill();
+      if (mine) navigator.vibrate?.([30, 250, 30, 250, 30, 250, 30]);
       break;
   }
 });
@@ -290,14 +314,18 @@ socket.on('game:notify', (n) => {
 });
 
 socket.on('npc:result', (r) => {
+  dialogue.result(r);
   const tone = r.outcome === 'bribed' ? 'good' : r.outcome === 'failed' ? 'bad' : r.outcome === 'killed' ? 'warn' : 'info';
   hud.notify({ text: r.text, tone });
 });
 
-socket.on('game:over', (o) => {
+socket.on('game:over', async (o) => {
   S.over = o;
-  dialogue.close();
   $('countdown').hidden = true;
+  // Let a bribe outcome (e.g. the arrest) play out before the result screen.
+  await dialogue.whenIdle(2600);
+  if (S.over !== o) return;
+  dialogue.close();
   renderResult(o, S.you);
   renderRematch(S.lobby, S.you);
   $('result').hidden = false;
@@ -308,76 +336,36 @@ socket.on('game:over', (o) => {
 
 // ---------------------------------------------------------------- rendering
 
-const view = $<HTMLCanvasElement>('view');
-const minimap = $<HTMLCanvasElement>('minimap');
-const ctx = view.getContext('2d')!;
-let vw = 0;
-let vh = 0;
-
-function resize(): void {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-  vw = view.clientWidth;
-  vh = view.clientHeight;
-  view.width = Math.round(vw * dpr);
-  view.height = Math.round(vh * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 200));
-
-/** Extrapolates a projectile between server ticks without letting it pass through walls. */
-function projectilePos(maze: MazeData, p: StateMsg['projectiles'][number], elapsedMs: number) {
-  let x = p.x;
-  let y = p.y;
-  let t = p.progress + (SHOT_SPEED * Math.min(elapsedMs, 120)) / 1000;
-  const v = DIR_VEC[p.dir];
-  while (t >= 0.5) {
-    if (hasWall(maze, x, y, p.dir)) {
-      t = 0.45;
-      break;
-    }
-    if (t < 1) break;
-    x += v.x;
-    y += v.y;
-    t -= 1;
-  }
-  return { owner: p.owner, x: x + 0.5 + v.x * t, y: y + 0.5 + v.y * t };
-}
+let resizeTimer = 0;
+const onResize = () => {
+  world?.resize();
+  clearTimeout(resizeTimer);
+  // Mobile browsers report the final size a little after rotation.
+  resizeTimer = window.setTimeout(() => world?.resize(), 250);
+};
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
+screen.orientation?.addEventListener?.('change', onResize);
 
 function frame(): void {
   requestAnimationFrame(frame);
-  if (S.screen !== 'game' || !S.maze || !S.state) return;
+  if (S.screen !== 'game' || !world || !S.maze) return;
   const now = performance.now();
+  const info = world.frame(now);
   const s = S.state;
-  const maze = S.maze;
-  const me = meTween.get(now);
-  const opp = s.opp.visible ? oppTween.get(now) : null;
-  const elapsed = now - S.stateAt;
-  const oppSlot: Slot = S.you === 0 ? 1 : 0;
-
-  const model: PovModel = {
-    maze,
-    me: { ...me, facing: s.me.facing, slot: S.you, isMe: true, frozen: s.me.frozenMs > elapsed, boosted: s.me.boostMs > elapsed, name: S.names[S.you] },
-    opp: opp && s.opp.facing ? { ...opp, facing: s.opp.facing, slot: oppSlot, isMe: false, name: s.opp.name } : null,
-    projectiles: s.projectiles.map((p) => projectilePos(maze, p, elapsed)),
-    coins: s.coins,
-    npcs: s.npcs,
-    reveal: s.reveal && s.reveal.ms > elapsed ? s.reveal.path : null,
-  };
-  drawPov(ctx, vw, vh, model, now);
-
-  const cs = cellSizeFor(vw, vh);
-  drawMinimap(
-    minimap,
+  if (!minimap || !s) return;
+  minimap.draw(
     {
-      maze,
+      maze: S.maze,
       you: S.you,
-      me,
-      opp,
-      reveal: model.reveal,
-      viewHalf: { x: vw / cs / 2, y: vh / cs / 2 },
+      me: info.me,
+      yaw: info.yaw,
+      opp: s.opp.near && s.opp.x !== undefined && s.opp.y !== undefined ? { x: s.opp.x, y: s.opp.y } : null,
+      reveal: s.reveal?.path ?? null,
+      npcs: s.npcs.filter((n) => n.status === 'active' && chebyshev(n, s.me) <= NPC_CHASE_RADIUS),
     },
     now,
+    S.bigMap,
   );
 }
 requestAnimationFrame(frame);

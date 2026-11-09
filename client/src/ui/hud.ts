@@ -1,5 +1,6 @@
-import { MAX_HP, ROLES, ROLE_BADGE, ROLE_LABEL } from '../../../shared/constants';
+import { MAX_HP, ROLES, ROLE_BADGE, ROLE_LABEL, formatCash } from '../../../shared/constants';
 import type { NotifyMsg, Slot, StateMsg } from '../../../shared/protocol';
+import { sfx } from '../audio';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -10,7 +11,10 @@ function hpCardHtml(): string {
 export class Hud {
   private readonly me = $('hp-me');
   private readonly opp = $('hp-opp');
-  private readonly coins = $('coins');
+  private readonly cash = $('cash');
+  private shownCash = -1;
+  private targetCash = 0;
+  private cashRaf = 0;
   private readonly status = $('status');
   private readonly kills = $('kills');
   private readonly feed = $('feed');
@@ -29,14 +33,39 @@ export class Hud {
     this.me.querySelector('.who')!.textContent = `P${you + 1} ${names[you]} (you)`;
     this.opp.querySelector('.who')!.textContent = `P${opp + 1} ${names[opp]}`;
     this.lastKills = '';
+    this.shownCash = -1;
     this.feed.replaceChildren();
+  }
+
+  /** Counts the displayed cash towards the real value, flashing green on gains and red on losses. */
+  private tickCash(): void {
+    if (this.shownCash === this.targetCash) {
+      this.cashRaf = 0;
+      return;
+    }
+    const diff = this.targetCash - this.shownCash;
+    const step = Math.sign(diff) * Math.max(1, Math.round(Math.abs(diff) / 8));
+    this.shownCash += Math.abs(step) > Math.abs(diff) ? diff : step;
+    this.cash.textContent = `\u{1F4B5} ${formatCash(this.shownCash)}`;
+    if (diff > 0) sfx.cashTick();
+    this.cashRaf = requestAnimationFrame(() => this.tickCash());
   }
 
   update(s: StateMsg): void {
     this.setHp(this.me, s.me.hp);
     this.setHp(this.opp, s.opp.hp);
     this.opp.classList.toggle('hidden-opp', !s.opp.visible);
-    this.coins.textContent = `\u{1FA99} ${s.me.coins} coins`;
+    if (this.shownCash < 0) {
+      this.shownCash = this.targetCash = s.me.cash;
+      this.cash.textContent = `\u{1F4B5} ${formatCash(s.me.cash)}`;
+    } else if (s.me.cash !== this.targetCash) {
+      const up = s.me.cash > this.targetCash;
+      this.targetCash = s.me.cash;
+      this.cash.classList.remove('up', 'down');
+      void this.cash.offsetWidth;
+      this.cash.classList.add(up ? 'up' : 'down');
+      if (!this.cashRaf) this.cashRaf = requestAnimationFrame(() => this.tickCash());
+    }
 
     const chips: string[] = [];
     if (s.me.frozenMs > 0) chips.push(`<span class="chip freeze">\u2744 Frozen ${Math.ceil(s.me.frozenMs / 1000)}s</span>`);

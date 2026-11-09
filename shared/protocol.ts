@@ -4,12 +4,16 @@
  */
 import type { MazeData, Point } from './maze';
 
+/** Absolute grid direction. */
 export type Dir = 'up' | 'down' | 'left' | 'right';
+/** Character-relative command: forward, turn-and-step left/right, turn around and step. */
+export type RelDir = 'forward' | 'back' | 'left' | 'right';
 export type Slot = 0 | 1;
 export type Role = 'MP' | 'BUSINESSMAN' | 'MLA' | 'POLICE';
 export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'over';
 export type WinReason = 'center' | 'died' | 'arrested' | 'forfeit';
 export type NpcStatus = 'active' | 'bribed' | 'failed' | 'killed' | 'skipped';
+export type NpcMode = 'patrol' | 'chase' | 'engaged' | 'gone';
 export type NpcAction = 'negotiate' | 'kill' | 'walk';
 export type NpcReply = 'accept' | 'not_enough' | 'too_much_to_ask';
 
@@ -39,6 +43,8 @@ export interface GameInit {
   maze: MazeData;
   you: Slot;
   names: [string, string];
+  /** Game seed (maze, NPCs, pickups, prices). Fresh and crypto-random for every game. */
+  seed: number;
 }
 
 export interface SelfView {
@@ -46,10 +52,12 @@ export interface SelfView {
   y: number;
   facing: Dir;
   hp: number;
-  coins: number;
+  cash: number;
   moveMs: number;
   frozenMs: number;
   boostMs: number;
+  /** Remaining input lock while the kill cinematic plays. */
+  cinematicMs: number;
   shotCooldownMs: number;
   killed: Record<Role, boolean>;
 }
@@ -58,8 +66,10 @@ export interface OpponentView {
   name: string;
   hp: number;
   connected: boolean;
-  /** Position is only sent while the opponent is within OPPONENT_VISIBLE_RADIUS cells. */
+  /** Rendered in 3D: nearby or in a straight unobstructed line of sight. Position only sent when true. */
   visible: boolean;
+  /** Within OPPONENT_VISIBLE_RADIUS cells: also shown on the minimap. */
+  near: boolean;
   x?: number;
   y?: number;
   facing?: Dir;
@@ -77,7 +87,7 @@ export interface ProjectileView {
   progress: number;
 }
 
-export interface CoinView {
+export interface CashPickupView {
   id: number;
   x: number;
   y: number;
@@ -89,7 +99,11 @@ export interface NpcView {
   role: Role;
   x: number;
   y: number;
+  facing: Dir;
   status: NpcStatus;
+  mode: NpcMode;
+  /** Duration of the current cell-to-cell step, for interpolation. */
+  moveMs: number;
 }
 
 export interface EncounterView {
@@ -107,7 +121,7 @@ export interface EncounterView {
   canKill: boolean;
   killCost: number;
   walkCost: number;
-  coins: number;
+  cash: number;
   quick: { low: number; medium: number; high: number };
 }
 
@@ -117,18 +131,21 @@ export interface StateMsg {
   me: SelfView;
   opp: OpponentView;
   projectiles: ProjectileView[];
-  coins: CoinView[];
+  pickups: CashPickupView[];
+  /** Only your own NPCs. */
   npcs: NpcView[];
   reveal: { path: Point[]; ms: number } | null;
   encounter: EncounterView | null;
 }
 
-export type FxKind = 'shot' | 'hit' | 'coin' | 'kill' | 'bribe_ok' | 'bribe_fail' | 'encounter';
+export type FxKind = 'shot' | 'hit' | 'cash' | 'kill' | 'bribe_ok' | 'bribe_fail' | 'encounter';
 
 export interface FxMsg {
   kind: FxKind;
   /** The player the effect belongs to (shooter, victim, collector...). */
   slot: Slot;
+  /** For 'kill': the NPC that was shot. */
+  npcId?: number;
 }
 
 export interface NotifyMsg {
@@ -137,17 +154,18 @@ export interface NotifyMsg {
 }
 
 export interface EncounterResult {
+  npcId: number;
   role: Role;
   outcome: 'bribed' | 'failed' | 'killed' | 'skipped';
   text: string;
 }
 
 export interface PlayerStats {
-  coins: number;
+  cash: number;
   hp: number;
   shotsFired: number;
   shotsHit: number;
-  coinsCollected: number;
+  cashCollected: number;
   bribed: number;
   failedBribes: number;
   killed: number;
@@ -160,6 +178,7 @@ export interface GameOverMsg {
   detail: string;
   names: [string, string];
   stats: [PlayerStats, PlayerStats];
+  seed: number;
 }
 
 // ---------------------------------------------------------------- events
@@ -170,7 +189,7 @@ export interface ClientToServerEvents {
   'room:resume': (p: { token: string }, ack: (r: { ok: boolean }) => void) => void;
   'room:leave': () => void;
   'lobby:ready': (ready: boolean) => void;
-  'input:move': (dir: Dir) => void;
+  'input:move': (dir: RelDir) => void;
   'input:shoot': () => void;
   'npc:action': (action: NpcAction) => void;
   'npc:offer': (amount: number) => void;

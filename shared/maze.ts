@@ -1,4 +1,4 @@
-import type { Dir } from './protocol';
+import type { Dir, RelDir } from './protocol';
 
 export interface Point {
   x: number;
@@ -101,4 +101,38 @@ export function shortestPath(m: MazeData, from: Point, to: Point): Point[] | nul
 
 export function chebyshev(a: Point, b: Point): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+export function isRelDir(v: unknown): v is RelDir {
+  return v === 'forward' || v === 'back' || v === 'left' || v === 'right';
+}
+
+const CLOCKWISE: readonly Dir[] = ['up', 'right', 'down', 'left'];
+const REL_TURNS: Record<RelDir, number> = { forward: 0, right: 1, back: 2, left: 3 };
+
+/** Grid direction for a character-relative command, e.g. facing 'up' + 'left' = 'left'. */
+export function applyRelative(facing: Dir, rel: RelDir): Dir {
+  return CLOCKWISE[(CLOCKWISE.indexOf(facing) + REL_TURNS[rel]) % 4];
+}
+
+/** Inverse of applyRelative: which command turns `facing` into `target`. */
+export function relativeFor(facing: Dir, target: Dir): RelDir {
+  const turns = (CLOCKWISE.indexOf(target) - CLOCKWISE.indexOf(facing) + 4) % 4;
+  return (['forward', 'right', 'back', 'left'] as const)[turns];
+}
+
+/** True when a and b share a row or column with no wall between them, at most `range` cells apart. */
+export function lineOfSight(m: MazeData, a: Point, b: Point, range: number): boolean {
+  if (a.x !== b.x && a.y !== b.y) return false;
+  const dist = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  if (dist > range) return false;
+  const dir: Dir = a.x === b.x ? (b.y > a.y ? 'down' : 'up') : b.x > a.x ? 'right' : 'left';
+  let x = a.x;
+  let y = a.y;
+  for (let i = 0; i < dist; i++) {
+    if (hasWall(m, x, y, dir)) return false;
+    x += DIR_VEC[dir].x;
+    y += DIR_VEC[dir].y;
+  }
+  return true;
 }

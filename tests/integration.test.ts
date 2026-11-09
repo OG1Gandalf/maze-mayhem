@@ -82,14 +82,30 @@ describe('socket protocol', () => {
     const initB = init.you === 0 ? null : init;
     expect(initB).toBeNull();
     const stateA = (await once(a, 'game:state', (s) => s.phase === 'playing')) as StateMsg;
-    expect(stateA.me).toMatchObject({ x: 0, y: 0, hp: 10, coins: 100 });
+    expect(stateA.me).toMatchObject({ x: 0, y: 0, hp: 10, cash: 100, facing: 'right' });
     const stateB = (await once(b, 'game:state', (s) => s.phase === 'playing')) as StateMsg;
     expect(stateB.me).toMatchObject({ x: 20, y: 20 });
+    expect(typeof init.seed).toBe('number');
 
-    const open = (['right', 'down'] as const).find((d) => !(init.maze.cells[0] & (d === 'right' ? 2 : 4)))!;
-    a.emit('input:move', open);
+    // Relative controls: facing right, "forward" goes right and "right" turns to face down.
+    const rightOpen = !(init.maze.cells[0] & 2);
+    a.emit('input:move', rightOpen ? 'forward' : 'right');
     const moved = (await once(a, 'game:state', (s) => s.me.x + s.me.y === 1)) as StateMsg;
-    expect(moved.me.facing).toBe(open);
+    expect(moved.me.facing).toBe(rightOpen ? 'right' : 'down');
+  });
+
+  it('ignores invalid move payloads and rate-limits floods', async () => {
+    const { a } = await startGame();
+    await once(a, 'game:state', (s) => s.phase === 'playing');
+    for (const bad of ['up', 'jump', 42, null, { dir: 'forward' }]) a.emit('input:move', bad as never);
+    const s = (await once(a, 'game:state')) as StateMsg;
+    expect(s.me).toMatchObject({ x: 0, y: 0 });
+    // A flood far beyond the burst is dropped, but the socket keeps working afterwards.
+    for (let i = 0; i < 500; i++) a.emit('input:shoot');
+    await new Promise((r) => setTimeout(r, 300));
+    const room = [...server.rooms.rooms.values()].find((r) => r.game)!;
+    expect(room.game!.players[0].stats.shotsFired).toBeLessThanOrEqual(1);
+    expect(a.connected).toBe(true);
   });
 
   it('disconnecting forfeits after the grace period', async () => {
@@ -133,6 +149,7 @@ describe('socket protocol', () => {
     c.emit('lobby:ready', true);
     const init2 = await next;
     expect(init2.maze.cells).not.toEqual(init.maze.cells);
+    expect(init2.seed).not.toBe(init.seed);
     expect(init2.names).toEqual(['Alice the very l', 'Carol']);
 
     const over2 = once(a, 'game:over');
@@ -143,5 +160,6 @@ describe('socket protocol', () => {
     c.emit('game:rematch');
     const [i3] = await third;
     expect(i3.maze.cells).not.toEqual(init2.maze.cells);
+    expect(i3.seed).not.toBe(init2.seed);
   });
 });

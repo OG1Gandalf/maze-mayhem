@@ -68,7 +68,7 @@ describe('negotiation', () => {
     }
   });
 
-  it('quick offers are Low/Medium/High fractions of current coins', () => {
+  it('quick offers are Low/Medium/High fractions of current cash', () => {
     expect(quickOffers(100)).toEqual({ low: 25, medium: 50, high: 80 });
     expect(quickOffers(0)).toEqual({ low: 0, medium: 0, high: 0 });
   });

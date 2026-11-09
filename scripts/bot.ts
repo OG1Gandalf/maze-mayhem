@@ -5,7 +5,7 @@
  * Optional: URL=http://192.168.1.5:3000
  */
 import { io, type Socket } from 'socket.io-client';
-import { DIRS, hasWall, type MazeData } from '../shared/maze';
+import { DIRS, hasWall, relativeFor, type MazeData } from '../shared/maze';
 import type { ClientToServerEvents, Dir, ServerToClientEvents, StateMsg } from '../shared/protocol';
 
 const code = process.argv[2];
@@ -59,6 +59,6 @@ setInterval(() => {
   const back: Record<Dir, Dir> = { up: 'down', down: 'up', left: 'right', right: 'left' };
   const forward = open.filter((d) => d !== back[last]);
   last = (forward.length ? forward : open)[Math.floor(Math.random() * (forward.length || open.length))];
-  socket.emit('input:move', last);
+  socket.emit('input:move', relativeFor(state.me.facing, last));
   if (state.opp.visible && Math.random() < 0.3) socket.emit('input:shoot');
 }, 250);
